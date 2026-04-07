@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import time
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
@@ -8,50 +9,20 @@ from sklearn.metrics.pairwise import cosine_similarity
 # =========================
 # PAGE CONFIG
 # =========================
-st.set_page_config(page_title="Food AI", layout="wide")
+st.set_page_config(page_title="Indian Food AI", layout="centered")
 
 # =========================
-# CUSTOM CSS (ULTRA UI)
+# FORCE LIGHT MODE STYLE
 # =========================
 st.markdown("""
 <style>
 body {
-    background: linear-gradient(135deg, #1f1c2c, #928dab);
+    background-color: white;
+    color: black;
 }
-
-.main {
-    background-color: transparent;
+h1, h2, h3 {
+    color: #222 !important;
 }
-
-.title {
-    text-align: center;
-    font-size: 50px;
-    font-weight: bold;
-    color: white;
-}
-
-.subtitle {
-    text-align: center;
-    color: #ddd;
-    margin-bottom: 30px;
-}
-
-.card {
-    background: rgba(255, 255, 255, 0.1);
-    padding: 20px;
-    border-radius: 20px;
-    backdrop-filter: blur(10px);
-    box-shadow: 0px 8px 20px rgba(0,0,0,0.3);
-    margin-bottom: 20px;
-    color: white;
-}
-
-.metric {
-    font-size: 28px;
-    font-weight: bold;
-    color: #00ffcc;
-}
-
 </style>
 """, unsafe_allow_html=True)
 
@@ -75,7 +46,7 @@ model = LinearSVC()
 model.fit(X, y)
 
 # =========================
-# RECOMMENDATION
+# FUNCTIONS
 # =========================
 def recommend_food(user_input):
     user_vec = tfidf.transform([user_input.lower()])
@@ -88,12 +59,8 @@ def recommend_food(user_input):
 
     return results.sort_values(by="Match %", ascending=False)
 
-# =========================
-# FOOD INSIGHTS
-# =========================
 def analyze_food_quality(user_input):
     user_input = user_input.lower()
-
     tags = []
 
     if any(x in user_input for x in ["paneer", "chicken", "egg", "dal"]):
@@ -113,77 +80,65 @@ def analyze_food_quality(user_input):
 # =========================
 # HEADER
 # =========================
-st.markdown('<div class="title">🍴 Indian Food Intelligence</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">AI Powered Diet Prediction & Smart Recommendations</div>', unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center;'>🍴 Indian Food Intelligence</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;'>Step-by-Step Smart Food Analysis</p>", unsafe_allow_html=True)
+
+st.markdown("---")
 
 # =========================
-# INPUT CENTER
+# INPUT
 # =========================
-col1, col2, col3 = st.columns([1,2,1])
+user_input = st.text_input("Enter Ingredients", "paneer, butter, tomato")
 
-with col2:
-    user_input = st.text_input("Enter Ingredients", "paneer, butter, tomato")
-    analyze = st.button("✨ Analyze Food")
+analyze = st.button("Analyze Food")
 
 # =========================
-# OUTPUT
+# STEP-BY-STEP OUTPUT
 # =========================
 if analyze and user_input:
 
+    placeholder = st.empty()
+
+    # STEP 1
+    with placeholder.container():
+        st.subheader("Step 1: Processing Input...")
+        with st.spinner("Analyzing ingredients..."):
+            time.sleep(1.5)
+
+    # STEP 2
     vec = tfidf.transform([user_input.lower()])
     prediction = model.predict(vec)[0]
 
+    with placeholder.container():
+        st.subheader("Step 2: Predicted Diet")
+        st.success(prediction)
+        time.sleep(1.5)
+
+    # STEP 3
     recs = recommend_food(user_input)
     recs['RecipeName'] = recs['RecipeName'].str.title()
+    top = recs.iloc[0]
 
+    with placeholder.container():
+        st.subheader("Step 3: Best Match")
+        st.write(f"**{top['RecipeName']}**")
+        st.progress(int(top['Match %']))
+        st.caption(f"{top['Match %']}% match")
+        time.sleep(1.5)
+
+    # STEP 4
+    with placeholder.container():
+        st.subheader("Step 4: Recommendations")
+        for _, row in recs.iterrows():
+            st.write(f"**{row['RecipeName']}**")
+            st.progress(int(row['Match %']))
+            st.caption(f"{row['Match %']}% match")
+        time.sleep(1.5)
+
+    # STEP 5
     tags = analyze_food_quality(user_input)
 
-    # =========================
-    # TOP CARDS
-    # =========================
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.markdown(f"""
-        <div class="card">
-            <h3>🥗 Diet Type</h3>
-            <div class="metric">{prediction}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c2:
-        top = recs.iloc[0]
-        st.markdown(f"""
-        <div class="card">
-            <h3>⭐ Best Match</h3>
-            <div class="metric">{top['RecipeName']}</div>
-            <p>{top['Match %']}% Match</p>
-        </div>
-        """, unsafe_allow_html=True)
-        st.progress(int(top['Match %']))
-
-    with c3:
-        st.markdown('<div class="card"><h3>💡 Insights</h3>', unsafe_allow_html=True)
+    with placeholder.container():
+        st.subheader("Step 5: Insights")
         for tag in tags:
-            st.write(tag)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    # =========================
-    # RECOMMENDATIONS GRID
-    # =========================
-    st.markdown("## 🍽️ Recommendations")
-
-    cols = st.columns(2)
-
-    for i, (_, row) in enumerate(recs.iterrows()):
-        with cols[i % 2]:
-            st.markdown(f"""
-            <div class="card">
-                <h3>{row['RecipeName']}</h3>
-                <p>{row['Cuisine']} | {row['Diet']}</p>
-                <p><b>{row['Match %']}% Match</b></p>
-            </div>
-            """, unsafe_allow_html=True)
-            st.progress(int(row['Match %']))
+            st.success(tag)
