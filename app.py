@@ -43,7 +43,11 @@ html, body, [class*="css"]  { font-family: 'DM Sans', sans-serif; background: va
 [data-testid="stSidebar"] {
     background: var(--surface) !important;
     border-right: 1px solid var(--border);
+    min-width: 320px !important;
+    max-width: 320px !important;
+    width: 320px !important;
 }
+[data-testid="stSidebar"] > div:first-child { padding: 2rem 1.6rem !important; }
 [data-testid="stSidebar"] * { color: var(--text) !important; }
 
 /* ── Hide default Streamlit chrome ── */
@@ -113,11 +117,12 @@ hr { border-color: var(--border) !important; }
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 18px;
-    padding: 28px 32px;
-    margin-bottom: 20px;
+    padding: 24px 28px;
+    margin-bottom: 16px;
     position: relative;
     overflow: hidden;
     transition: border-color 0.2s;
+    max-width: 820px;
 }
 .recipe-card:hover { border-color: var(--saffron); }
 .recipe-card::before {
@@ -157,14 +162,14 @@ hr { border-color: var(--border) !important; }
 .badge.green   { background: rgba(93,187,126,0.12); border-color: rgba(93,187,126,0.3); color: var(--green); }
 .badge.red     { background: rgba(224,92,92,0.12);  border-color: rgba(224,92,92,0.3);  color: var(--red); }
 
-.score-bar-wrap { margin: 12px 0 20px 0; }
+.score-bar-wrap { margin: 12px 0 20px 0; max-width: 400px; }
 .score-label {
     display: flex; justify-content: space-between;
     font-size: 12px; color: var(--muted); margin-bottom: 6px;
 }
 .score-bar-bg {
     background: var(--surface2);
-    border-radius: 99px; height: 8px; overflow: hidden;
+    border-radius: 99px; height: 7px; overflow: hidden;
 }
 .score-bar-fill {
     height: 100%; border-radius: 99px;
@@ -267,8 +272,13 @@ hr { border-color: var(--border) !important; }
     font-weight: 700;
     color: var(--text);
     margin-bottom: 4px;
+    max-width: 820px;
 }
-.results-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+.results-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; max-width: 820px; }
+
+/* Constrain main content width */
+.main-wrap { max-width: 880px; }
+section[data-testid="stMain"] .block-container { max-width: 900px !important; padding-left: 2rem !important; padding-right: 2rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
