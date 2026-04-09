@@ -297,7 +297,7 @@ def _clean_diet(d):
 
 @st.cache_resource
 def build_tfidf(df):
-    vec = TfidfVectorizer(ngram_range=(1, 2))
+    vec = TfidfVectorizer(ngram_range=(1, 2), min_df=2)
     X   = vec.fit_transform(df['TranslatedIngredients'])
     return vec, X
 
@@ -327,29 +327,50 @@ def nutrition(ings: list[str]) -> dict:
 # CORE RECOMMENDATION ENGINE
 # ─────────────────────────────────────────
 def recommend(user_input: str, diet: str, cuisines: list, time_pref: str, sort_by: str, n: int = 8):
-    user_vec   = vec.transform([user_input])
-    similarity = cosine_similarity(user_vec, X)[0]
+    user_ings = [i.strip() for i in user_input.split(",") if i.strip()]
+    if not user_ings:
+        return pd.DataFrame()
 
     dfc = df.copy()
-    dfc["cos_score"] = similarity
 
-    # Compute proper match score  = matched / total_recipe_ings
-    user_ings = [i.strip() for i in user_input.split(",") if i.strip()]
-
+    # ── Step 1: compute per-recipe match (plain string lists, NO html) ──
     def _match(row_ings_str):
-        ings = [i.strip() for i in row_ings_str.split(",") if i.strip()]
-        if not ings:
-            return 0.0, [], []
-        matched = [i for i in ings if any(u in i for u in user_ings)]
-        missing = [i for i in ings if i not in matched]
-        score   = len(matched) / len(ings) * 100
-        return score, matched, missing
+        # Split on comma, clean each ingredient
+        ings = [i.strip() for i in str(row_ings_str).split(",") if i.strip()]
+        total = len(ings)
+        if total == 0:
+            return 0.0, 0.0, [], [], 0
 
-    results = dfc.apply(lambda r: pd.Series(_match(r['TranslatedIngredients']),
-                                            index=['match_score','matched','missing']), axis=1)
-    dfc = pd.concat([dfc, results], axis=1)
+        matched = []
+        missing = []
+        for ing in ings:
+            ing_lower = ing.lower()
+            # An ingredient is "matched" if any user ingredient word appears in it
+            if any(u.lower() in ing_lower for u in user_ings):
+                matched.append(ing)   # plain string, NOT html
+            else:
+                missing.append(ing)   # plain string, NOT html
 
-    # Filters
+        n_matched = len(matched)
+        # raw ratio: matched / total recipe ingredients
+        ratio = n_matched / total
+
+        # weighted score: ratio × log-scaled ingredient count
+        # penalises 1-ingredient recipes (ghee, water, etc.)
+        import math
+        weight = math.log(total + 1) / math.log(20)   # normalised; recipes with ~20 ings get weight≈1
+        weighted = ratio * min(weight, 1.0) * 100
+
+        return ratio * 100, weighted, matched, missing, total
+
+    cols = ['match_score', 'weighted_score', 'matched', 'missing', 'total_ings']
+    rows = dfc['TranslatedIngredients'].apply(lambda s: pd.Series(_match(s), index=cols))
+    dfc  = pd.concat([dfc, rows], axis=1)
+
+    # ── Step 2: only keep recipes where at least 1 ingredient matched ──
+    dfc = dfc[dfc['match_score'] > 0]
+
+    # ── Step 3: filters ──
     if diet != "Both":
         dfc = dfc[dfc["Cleaned_Diet"] == diet]
 
@@ -361,14 +382,15 @@ def recommend(user_input: str, diet: str, cuisines: list, time_pref: str, sort_b
     elif time_pref == "Under 1 hour":
         dfc = dfc[dfc["TotalTimeInMins"] <= 60]
 
-    # Sort
+    # ── Step 4: sort ──
     if sort_by == "Fewest Missing":
         dfc["missing_count"] = dfc["missing"].apply(len)
-        dfc = dfc.sort_values(["missing_count", "match_score"], ascending=[True, False])
+        dfc = dfc.sort_values(["missing_count", "weighted_score"], ascending=[True, False])
     elif sort_by == "Least Time":
-        dfc = dfc.sort_values(["TotalTimeInMins", "match_score"], ascending=[True, False])
-    else:  # Best Match (default)
-        dfc = dfc.sort_values("match_score", ascending=False)
+        dfc = dfc[dfc["TotalTimeInMins"] > 0]
+        dfc = dfc.sort_values(["TotalTimeInMins", "weighted_score"], ascending=[True, False])
+    else:  # Best Match (default) — use weighted score
+        dfc = dfc.sort_values("weighted_score", ascending=False)
 
     return dfc.head(n).reset_index(drop=True)
 
@@ -477,26 +499,26 @@ if search_clicked:
 
             for _, row in results.iterrows():
                 name       = str(row['RecipeName']).title()
-                cuisine    = row.get('Cuisine', 'Other')
+                cuisine    = str(row.get('Cuisine', 'Other'))
                 diet_type  = row['Cleaned_Diet']
-                score      = round(row['match_score'], 1)
-                matched    = row['matched']
-                missing    = row['missing']
+                score      = round(float(row['match_score']), 1)   # raw % for display
+                matched    = list(row['matched'])                   # plain strings
+                missing    = list(row['missing'])                   # plain strings
                 total_time = int(row['TotalTimeInMins']) if row['TotalTimeInMins'] else 0
                 servings   = row.get('Servings', 'N/A')
-                url        = row.get('URL', '#')
+                url        = str(row.get('URL', '#'))
                 nut        = nutrition(row['TranslatedIngredients'].split(","))
 
-                diet_color = "green" if diet_type == "Vegetarian" else "red"
+                diet_color  = "green" if diet_type == "Vegetarian" else "red"
                 score_color = "#5DBB7E" if score >= 60 else ("#F4A228" if score >= 30 else "#E05C5C")
 
-                # Build ingredient chips HTML
+                # Build ingredient chips HTML from plain ingredient strings
                 matched_chips = "".join(
-                    f"<span class='ing-chip have'>✔ {i.strip()[:28]}</span>"
+                    f"<span class='ing-chip have'>✔ {i.strip()[:30]}</span>"
                     for i in matched[:12]
                 )
                 missing_chips = "".join(
-                    f"<span class='ing-chip need'>✖ {i.strip()[:28]}</span>"
+                    f"<span class='ing-chip need'>✖ {i.strip()[:30]}</span>"
                     for i in missing[:12]
                 )
                 missing_note = (f"<i style='font-size:12px;color:#8A847B'>…and {len(missing)-12} more</i>"
@@ -505,8 +527,8 @@ if search_clicked:
                 # Nutrition pills
                 nut_html = ""
                 for k, v in nut.items():
-                    cls = "high" if v else ""
-                    icon = "💪" if k=="Protein" else ("🧈" if k=="Fat" else "🥦")
+                    cls  = "high" if v else ""
+                    icon = "💪" if k == "Protein" else ("🧈" if k == "Fat" else "🥦")
                     nut_html += f"<span class='nut-pill {cls}'>{icon} {k}: {'High' if v else 'Low'}</span>"
 
                 time_display = f"{total_time} mins" if total_time else "N/A"
