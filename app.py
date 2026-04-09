@@ -1,28 +1,24 @@
 import streamlit as st
 import pandas as pd
-import time
-
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.svm import LinearSVC
 from sklearn.metrics.pairwise import cosine_similarity
 
 # =========================
 # PAGE CONFIG
 # =========================
-st.set_page_config(page_title="Indian Food AI", layout="centered")
+st.set_page_config(page_title="Smart Recipe System", layout="centered")
 
 # =========================
-# LIGHT MODE + BLUE HEADING
+# STYLE
 # =========================
 st.markdown("""
 <style>
-body {
-    background-color: white;
-    color: black;
-}
-h1 {
-    color: #1f77b4 !important;
-    text-align: center;
+h1 { color: #1f77b4; text-align: center; }
+.card {
+    padding: 15px;
+    border-radius: 10px;
+    margin-bottom: 15px;
+    border: 1px solid #ddd;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -34,107 +30,161 @@ df = pd.read_csv("IndianFoodDatasetCSV.csv")
 df.columns = df.columns.str.strip()
 
 df['TranslatedIngredients'] = df['TranslatedIngredients'].fillna('').str.lower()
-df['RecipeName'] = df['RecipeName'].fillna('').str.lower()
+df['RecipeName'] = df['RecipeName'].fillna('')
+df['Cuisine'] = df['Cuisine'].fillna('Other')
+df['Diet'] = df['Diet'].fillna('Vegetarian')
 
 # =========================
-# MODEL
+# CLEAN DIET COLUMN
+# =========================
+def clean_diet(diet):
+    diet = str(diet).lower()
+    if "non vegetarian" in diet:
+        return "Non-Vegetarian"
+    elif "vegetarian" in diet or "egg" in diet:
+        return "Vegetarian"
+    else:
+        return "Vegetarian"
+
+df["Cleaned_Diet"] = df["Diet"].apply(clean_diet)
+
+# =========================
+# TF-IDF (for similarity)
 # =========================
 tfidf = TfidfVectorizer()
 X = tfidf.fit_transform(df['TranslatedIngredients'])
-y = df['Diet']
-
-model = LinearSVC()
-model.fit(X, y)
 
 # =========================
-# FUNCTIONS
+# NUTRITION LOGIC
 # =========================
-def recommend_food(user_input):
-    user_vec = tfidf.transform([user_input.lower()])
+protein_rich = ["paneer", "chicken", "egg", "dal", "beans", "soy"]
+fat_rich = ["butter", "oil", "cream", "cheese", "ghee"]
+fibre_rich = ["spinach", "vegetable", "carrot", "beans", "broccoli"]
+
+def get_nutrition(ingredients):
+    protein = any(i in ingredients for i in protein_rich)
+    fat = any(i in ingredients for i in fat_rich)
+    fibre = any(i in ingredients for i in fibre_rich)
+
+    return {
+        "Protein": "High" if protein else "Low",
+        "Fat": "High" if fat else "Low",
+        "Fibre": "High" if fibre else "Low"
+    }
+
+# =========================
+# MATCHING FUNCTION
+# =========================
+def get_recommendations(user_input, diet_filter, cuisine_filter, time_filter):
+
+    user_vec = tfidf.transform([user_input])
     similarity = cosine_similarity(user_vec, X)[0]
 
-    top_indices = similarity.argsort()[-5:][::-1]
+    df_copy = df.copy()
+    df_copy["score"] = similarity * 100
 
-    results = df.iloc[top_indices][['RecipeName', 'Cuisine', 'Diet']].copy()
-    results['Match %'] = [round(similarity[i] * 100, 2) for i in top_indices]
+    # FILTER: DIET
+    if diet_filter != "Both":
+        df_copy = df_copy[df_copy["Cleaned_Diet"] == diet_filter]
 
-    return results.sort_values(by="Match %", ascending=False)
+    # FILTER: CUISINE
+    if "Any Cuisine" not in cuisine_filter:
+        df_copy = df_copy[df_copy["Cuisine"].isin(cuisine_filter)]
 
-def analyze_food_quality(user_input):
-    user_input = user_input.lower()
-    tags = []
+    # FILTER: TIME
+    if time_filter == "Under 30 mins":
+        df_copy = df_copy[df_copy["TotalTimeInMins"] <= 30]
+    elif time_filter == "Under 1 hour":
+        df_copy = df_copy[df_copy["TotalTimeInMins"] <= 60]
 
-    if any(x in user_input for x in ["paneer", "chicken", "egg", "dal"]):
-        tags.append("💪 High Protein")
-    if any(x in user_input for x in ["rice", "potato", "bread"]):
-        tags.append("⚡ High Carbs")
-    if any(x in user_input for x in ["butter", "ghee", "cream"]):
-        tags.append("⚠️ High Fat")
-    if any(x in user_input for x in ["vegetable", "spinach", "salad"]):
-        tags.append("🟢 Healthy")
-
-    if not tags:
-        tags.append("⚖️ Balanced")
-
-    return tags
+    return df_copy.sort_values(by="score", ascending=False).head(5)
 
 # =========================
 # HEADER
 # =========================
-st.markdown("<h1>🍴 Indian Food Intelligence</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center;'>Step-by-Step Smart Food Analysis</p>", unsafe_allow_html=True)
-
-st.markdown("---")
+st.markdown("<h1>🍴 Smart Recipe Recommendation</h1>", unsafe_allow_html=True)
 
 # =========================
-# INPUT
+# INPUT SECTION
 # =========================
 user_input = st.text_input("Enter Ingredients", "paneer, butter, tomato")
 
-analyze = st.button("Analyze Food")
+diet = st.radio("Select Diet", ["Both", "Vegetarian", "Non-Vegetarian"])
+
+cuisine_options = [
+    "Indian", "Continental", "Chinese", "Italian", "Mexican",
+    "Thai", "Mediterranean", "American", "Japanese", "Others"
+]
+
+selected_cuisine = st.multiselect(
+    "Select Cuisine",
+    ["Any Cuisine"] + cuisine_options,
+    default=["Any Cuisine"]
+)
+
+time_filter = st.selectbox("Cooking Time", ["Any", "Under 30 mins", "Under 1 hour"])
 
 # =========================
-# TIMELINE OUTPUT
+# PROCESS BUTTON
 # =========================
-if analyze and user_input:
+if st.button("Find Recipes"):
 
-    # STEP 1
-    st.subheader("Step 1: Processing Input")
-    with st.spinner("Analyzing ingredients..."):
-        time.sleep(1.5)
+    user_input_clean = user_input.lower()
 
-    # STEP 2
-    vec = tfidf.transform([user_input.lower()])
-    prediction = model.predict(vec)[0]
+    results = get_recommendations(user_input_clean, diet, selected_cuisine, time_filter)
 
-    st.subheader("Step 2: Predicted Diet")
-    st.success(prediction)
-    time.sleep(1.2)
+    st.markdown("---")
 
-    # STEP 3
-    recs = recommend_food(user_input)
-    recs['RecipeName'] = recs['RecipeName'].str.title()
-    top = recs.iloc[0]
+    st.subheader(f"Top Recipes for: {user_input}")
 
-    st.subheader("Step 3: Best Match")
-    st.write(f"**{top['RecipeName']}**")
-    st.progress(int(top['Match %']))
-    st.caption(f"{top['Match %']}% match")
-    time.sleep(1.2)
+    for _, row in results.iterrows():
 
-    # STEP 4
-    st.subheader("Step 4: Recommendations")
-    for _, row in recs.iterrows():
-        st.write(f"**{row['RecipeName']}**")
-        st.progress(int(row['Match %']))
-        st.caption(f"{row['Match %']}% match")
-        st.markdown("")
+        recipe_name = row["RecipeName"].title()
+        recipe_ingredients = row["TranslatedIngredients"].split(",")
+        score = round(row["score"], 2)
+        time_total = row.get("TotalTimeInMins", "N/A")
+        servings = row.get("Servings", "N/A")
+        cuisine = row.get("Cuisine", "Other")
+        diet_type = row["Cleaned_Diet"]
+        url = row.get("URL", "#")
 
-    time.sleep(1.2)
+        user_ingredients = [i.strip() for i in user_input_clean.split(",")]
 
-    # STEP 5
-    tags = analyze_food_quality(user_input)
+        matched = [i for i in recipe_ingredients if any(u in i for u in user_ingredients)]
+        missing = [i for i in recipe_ingredients if i not in matched]
 
-    st.subheader("Step 5: Insights")
-    for tag in tags:
-        st.success(tag)
+        nutrition = get_nutrition(recipe_ingredients)
+
+        # =========================
+        # CARD UI
+        # =========================
+        with st.container():
+            st.markdown("<div class='card'>", unsafe_allow_html=True)
+
+            st.subheader(recipe_name)
+
+            st.write(f"🍽 Cuisine: {cuisine}")
+            st.write(f"🥗 Diet: {diet_type}")
+            st.write(f"📊 Match Score: {score}%")
+            st.write(f"❗ Missing Ingredients: {len(missing)}")
+
+            st.markdown("### 🧾 Ingredients")
+
+            for i in matched:
+                st.markdown(f"🟢 {i.strip()}")
+
+            for i in missing:
+                st.markdown(f"🔴 {i.strip()}")
+
+            st.markdown("### ⏱ Details")
+            st.write(f"Total Time: {time_total} mins")
+            st.write(f"Servings: {servings}")
+
+            st.markdown("### 🧬 Nutrition")
+            st.write(f"💪 Protein: {nutrition['Protein']}")
+            st.write(f"🧈 Fat: {nutrition['Fat']}")
+            st.write(f"🥦 Fibre: {nutrition['Fibre']}")
+
+            st.markdown(f"[🔗 View Recipe]({url})")
+
+            st.markdown("</div>", unsafe_allow_html=True)
